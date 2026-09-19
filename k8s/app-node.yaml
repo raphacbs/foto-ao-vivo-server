@@ -49,7 +49,7 @@ spec:
       containers:
         - name: node-backend
           # Corrigido para o seu usuário e nome do repositório
-          image: ghcr.io/raphacbs/node-backend:latest
+          image: ghcr.io/raphacbs/node-backend:065a1fb899aadf32013b787901160bfd633c4749
           ports:
             - containerPort: 3000
           
