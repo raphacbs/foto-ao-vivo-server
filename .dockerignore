@@ -1,0 +1,9 @@
+# Ignora a pasta de dependências local
+node_modules/
+
+# Ignora os arquivos de banco de dados e imagens locais
+data/db.json
+uploads/*
+
+# Ignora arquivos de variáveis de ambiente locais (segurança)
+.env

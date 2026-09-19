@@ -1,16 +1,21 @@
 FROM node:20-alpine
 WORKDIR /app
 
-# Copia apenas os arquivos de dependência primeiro (otimiza o cache do Docker)
+# Copia apenas os arquivos de dependência primeiro
 COPY package*.json ./
-# Instala apenas as dependências de produção
 RUN npm install --omit=dev
 
 # Copia o resto do código
 COPY . .
 
-# Expõe a porta que sua API Node usa (ajuste se for diferente de 3000)
+# 1. Cria as pastas para o disco persistente e ajusta as permissões para o usuário 'node'
+RUN mkdir -p /app/data /app/uploads && chown -R node:node /app
+
+# 2. Define que a aplicação rodará com o usuário restrito 'node' (padrão de segurança)
+USER node
+
+# Expõe a porta
 EXPOSE 3000
 
-# Comando para iniciar a aplicação (ajuste para o seu script de start)
+# Comando para iniciar a aplicação
 CMD ["npm", "start"]
