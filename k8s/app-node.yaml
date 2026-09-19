@@ -1,0 +1,44 @@
+---
+# -----------------------------
+# BACKEND (NODE.JS)
+# -----------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-backend-svc
+spec:
+  selector:
+    app: node-backend
+  ports:
+    - port: 3000 # Porta que o Service expõe
+      targetPort: 3000 # Porta que o Node.js está rodando
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-backend
+  template:
+    metadata:
+      labels:
+        app: node-backend
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret # Mesmo cofre usado anteriormente
+      containers:
+        - name: node-backend
+          image: ghcr.io/seu-usuario/sua-api-node:latest # Substitua aqui
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi" # Node é leve, 256MB costuma sobrar!
+              cpu: "500m"
