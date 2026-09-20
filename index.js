@@ -67,6 +67,7 @@ const upload = multer({
 });
 
 app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/api/uploads', express.static(UPLOADS_DIR));
 
 // POST /api/upload
 app.post('/api/upload', upload.single('photo'), (req, res) => {
