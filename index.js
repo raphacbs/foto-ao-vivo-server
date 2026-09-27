@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
+const archiver = require('archiver');
 const { v4: uuidv4 } = require('uuid');
 const db = require('./db');
 const logger = require('./logger');
@@ -72,6 +73,11 @@ const upload = multer({
 app.use('/uploads', express.static(UPLOADS_DIR));
 app.use('/api/uploads', express.static(UPLOADS_DIR));
 
+function sanitizeDownloadName(name) {
+  if (!name || typeof name !== 'string') return 'photo.jpg';
+  return name.replace(/[\\/:*?"<>|]/g, '_');
+}
+
 // POST /api/upload
 app.post('/api/upload', upload.single('photo'), (req, res) => {
   logger.info('upload', 'Upload request received', {
@@ -101,6 +107,129 @@ app.get('/api/photos', (req, res) => {
     count: rows.length,
   });
   res.json(rows);
+});
+
+// GET /api/photos/:id/download
+app.get('/api/photos/:id/download', (req, res) => {
+  const id = req.params.id;
+  const row = db.getPhotoById(id);
+  logger.info('photos', 'Single photo download requested', { requestId: req.requestId, id });
+
+  if (!row) return res.status(404).json({ error: 'Not found' });
+
+  const filePath = path.join(UPLOADS_DIR, row.filename);
+  if (!fs.existsSync(filePath)) {
+    logger.error('photos', 'Single photo download failed: file missing on disk', {
+      requestId: req.requestId,
+      id,
+      filename: row.filename,
+    });
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  const downloadName = sanitizeDownloadName(row.originalname || row.filename);
+  return res.download(filePath, downloadName, (err) => {
+    if (!err) {
+      logger.info('photos', 'Single photo download completed', {
+        requestId: req.requestId,
+        id,
+        filename: row.filename,
+      });
+      return;
+    }
+
+    logger.error('photos', 'Single photo download stream failed', {
+      requestId: req.requestId,
+      id,
+      message: err.message,
+    });
+  });
+});
+
+// GET /api/photos/download/all
+app.get('/api/photos/download/all', (req, res) => {
+  const rows = db.getPhotos();
+  logger.info('photos', 'Batch photo download requested', {
+    requestId: req.requestId,
+    totalRequested: rows.length,
+  });
+
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('') + '-' + [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+  ].join('');
+  const zipName = `fotos-${stamp}.zip`;
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    logger.error('photos', 'Batch photo download archive failed', {
+      requestId: req.requestId,
+      message: err.message,
+    });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Failed to create zip' });
+    }
+    res.end();
+  });
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      archive.destroy();
+    }
+  });
+
+  archive.pipe(res);
+
+  const filenameCount = {};
+  let added = 0;
+  let skipped = 0;
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    const filePath = path.join(UPLOADS_DIR, row.filename);
+    if (!fs.existsSync(filePath)) {
+      skipped += 1;
+      logger.error('photos', 'Skipping missing file during batch download', {
+        requestId: req.requestId,
+        id: row.id,
+        filename: row.filename,
+      });
+      continue;
+    }
+
+    const original = sanitizeDownloadName(row.originalname || row.filename);
+    const parsed = path.parse(original);
+    const key = original.toLowerCase();
+    const previous = filenameCount[key] || 0;
+    filenameCount[key] = previous + 1;
+    const entryName = previous === 0
+      ? original
+      : `${parsed.name}-${previous}${parsed.ext}`;
+
+    archive.file(filePath, { name: entryName });
+    added += 1;
+  }
+
+  archive.finalize().then(() => {
+    logger.info('photos', 'Batch photo download completed', {
+      requestId: req.requestId,
+      totalRequested: rows.length,
+      added,
+      skipped,
+    });
+  }).catch((err) => {
+    logger.error('photos', 'Batch photo download finalize failed', {
+      requestId: req.requestId,
+      message: err.message,
+    });
+  });
 });
 
 // DELETE /api/photos/:id
