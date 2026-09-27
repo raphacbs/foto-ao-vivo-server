@@ -49,7 +49,7 @@ spec:
       containers:
         - name: node-backend
           # Corrigido para o seu usuário e nome do repositório
-          image: ghcr.io/raphacbs/node-backend:41792128d7fc798d8fd665381018094e36a5e1ea
+          image: ghcr.io/raphacbs/node-backend:e7563d233d25f4a27bf18a8754570ff9dacbf9a8
           env:
             - name: PORT
               value: "3000"
