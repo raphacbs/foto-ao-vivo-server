@@ -232,6 +232,103 @@ app.get('/api/photos/download/all', (req, res) => {
   });
 });
 
+// POST /api/photos/download/selected
+app.post('/api/photos/download/selected', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  logger.info('photos', 'Selected batch photo download requested', {
+    requestId: req.requestId,
+    totalRequested: ids.length,
+  });
+
+  if (!ids.length) return res.status(400).json({ error: 'ids required' });
+
+  const selectedRows = ids
+    .map((id) => db.getPhotoById(String(id)))
+    .filter(Boolean);
+
+  if (!selectedRows.length) {
+    return res.status(404).json({ error: 'No selected photos found' });
+  }
+
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('') + '-' + [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+  ].join('');
+  const zipName = `fotos-selecionadas-${stamp}.zip`;
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    logger.error('photos', 'Selected batch archive failed', {
+      requestId: req.requestId,
+      message: err.message,
+    });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Failed to create zip' });
+    }
+    res.end();
+  });
+
+  res.on('close', () => {
+    if (!res.writableEnded) {
+      archive.destroy();
+    }
+  });
+
+  archive.pipe(res);
+
+  const filenameCount = {};
+  let added = 0;
+  let skipped = 0;
+  for (let i = 0; i < selectedRows.length; i += 1) {
+    const row = selectedRows[i];
+    const filePath = path.join(UPLOADS_DIR, row.filename);
+    if (!fs.existsSync(filePath)) {
+      skipped += 1;
+      logger.error('photos', 'Skipping missing file during selected batch download', {
+        requestId: req.requestId,
+        id: row.id,
+        filename: row.filename,
+      });
+      continue;
+    }
+
+    const original = sanitizeDownloadName(row.originalname || row.filename);
+    const parsed = path.parse(original);
+    const key = original.toLowerCase();
+    const previous = filenameCount[key] || 0;
+    filenameCount[key] = previous + 1;
+    const entryName = previous === 0
+      ? original
+      : `${parsed.name}-${previous}${parsed.ext}`;
+
+    archive.file(filePath, { name: entryName });
+    added += 1;
+  }
+
+  archive.finalize().then(() => {
+    logger.info('photos', 'Selected batch photo download completed', {
+      requestId: req.requestId,
+      totalRequested: ids.length,
+      found: selectedRows.length,
+      added,
+      skipped,
+    });
+  }).catch((err) => {
+    logger.error('photos', 'Selected batch photo download finalize failed', {
+      requestId: req.requestId,
+      message: err.message,
+    });
+  });
+});
+
 // DELETE /api/photos/:id
 app.delete('/api/photos/:id', (req, res) => {
   const id = req.params.id;
